@@ -1,0 +1,33 @@
+{
+  "auth": {
+    "aws_region": "us-east-1",
+    "user_pool_id": "us-east-1_example",
+    "web_client_id": "examplewebclient",
+    "native_client_id": "exampleNativeClient",
+    "oauth": {
+      "domain": "https://afcs-uni-erp.auth.us-east-1.amazoncognito.com",
+      "scope": [
+        "email",
+        "openid",
+        "profile",
+        "aws.cognito.signin.user.admin"
+      ],
+      "redirectSignIn": [
+        "http://localhost:3000/"
+      ],
+      "redirectSignOut": [
+        "http://localhost:3000/"
+      ],
+      "responseType": "code"
+    }
+  },
+  "data": {
+    "aws_region": "us-east-1",
+    "api_url": "https://example.appsync-api.us-east-1.amazonaws.com/graphql",
+    "default_authorization_type": "AMAZON_COGNITO_USER_POOLS"
+  },
+  "storage": {
+    "aws_region": "us-east-1",
+    "bucket_name": "afcs-uni-erp-documents"
+  }
+}

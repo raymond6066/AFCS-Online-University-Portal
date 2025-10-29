@@ -1,12 +1,27 @@
 "use client";
 
-import { SidebarProvider } from "@/components/Layouts/sidebar/sidebar-context";
+import { Amplify } from "aws-amplify";
+import outputs from "../../amplify_outputs.json";
 import { ThemeProvider } from "next-themes";
+import { PropsWithChildren, useEffect, useRef } from "react";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+const configureAmplify = () => {
+  Amplify.configure(outputs, { ssr: true });
+};
+
+export default function Providers({ children }: PropsWithChildren) {
+  const configured = useRef(false);
+
+  useEffect(() => {
+    if (!configured.current) {
+      configureAmplify();
+      configured.current = true;
+    }
+  }, []);
+
   return (
-    <ThemeProvider defaultTheme="light" attribute="class">
-      <SidebarProvider>{children}</SidebarProvider>
+    <ThemeProvider attribute="class" enableSystem defaultTheme="light">
+      {children}
     </ThemeProvider>
   );
 }
