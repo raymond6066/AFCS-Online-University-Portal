@@ -1,34 +1,24 @@
 import { defineAuth } from "@aws-amplify/backend";
 
 export const auth = defineAuth({
-  loginWith: {
-    email: true,
-  },
+  loginMechanisms: ["email"],
+  signupAttributes: ["email"],
   userAttributes: {
-    email: {
-      required: true,
-      mutable: false,
-    },
-    "custom:role": {
-      dataType: "String",
-      mutable: true,
-    },
+    email: { required: true },
   },
-  triggers: {
-    postConfirmation: {
-      handler: "./triggers/post-confirmation.ts",
-    },
+  mfa: {
+    status: "OPTIONAL",
   },
   oauth: {
     domainPrefix: "afcs-uni-erp",
-    redirectSignIn: ["http://localhost:3000/"],
-    redirectSignOut: ["http://localhost:3000/"],
-    responseType: "code",
-    scopes: [
-      "email",
-      "openid",
-      "profile",
-      "aws.cognito.signin.user.admin",
+    scopes: ["email", "openid", "profile"],
+    redirectSignIn: [
+      "http://localhost:3000/",
+      "https://your-production-domain.com/",
+    ],
+    redirectSignOut: [
+      "http://localhost:3000/",
+      "https://your-production-domain.com/",
     ],
   },
 });

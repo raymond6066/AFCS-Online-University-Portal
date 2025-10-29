@@ -1,84 +1,113 @@
 "use client";
 
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { SimpleTable } from "@/components/tables/SimpleTable";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { client } from "@/lib/amplifyClient";
 import { useEffect, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { Payment, UserProfile } from "../../../../lib/schema";
-import { client } from "../../../../lib/amplifyClient";
-import { listPayments, listUserProfiles } from "../../../../services/data";
+
+type Payment = {
+  id: string;
+  amount: number;
+  status: string;
+  description?: string | null;
+  timestamp?: string;
+  studentId: string;
+  student?: { fullName?: string | null; email: string };
+};
+
+const statuses = ["PENDING", "PAID", "OVERDUE"] as const;
+
+type Status = (typeof statuses)[number];
 
 export default function AdminPaymentsPage() {
-  const auth = useCurrentUserProfile();
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [students, setStudents] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [paymentData, userData] = await Promise.all([listPayments(), listUserProfiles()]);
-        setPayments(paymentData);
-        setStudents(userData.filter((user) => user.role === "STUDENT"));
-      } catch (err) {
-        console.error(err);
-        setError("Unable to load payments.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+  const loadPayments = async () => {
+    setLoading(true);
+    setError(null);
 
-  const updateStatus = async (payment: Payment, status: Payment["status"]) => {
     try {
-      const response = await client.models.Payment.update({ id: payment.id, status });
-      if (response.data) {
-        setPayments((prev) => prev.map((item) => (item.id === payment.id ? response.data! : item)));
-      }
+      const { data } = await client.models.Payment.list({});
+      setPayments((data ?? []) as Payment[]);
     } catch (err) {
       console.error(err);
-      alert("Failed to update payment status.");
+      setError("Unable to load payments.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading payments..." />;
-  }
+  useEffect(() => {
+    void loadPayments();
+  }, []);
 
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-  const studentMap = new Map(students.map((student) => [student.id, student.fullName ?? student.email]));
+  const handleStatusChange = async (payment: Payment, status: Status) => {
+    setSavingId(payment.id);
+    setError(null);
+    try {
+      const result = await client.models.Payment.update({
+        id: payment.id,
+        status,
+      });
+      if (result.errors && result.errors.length > 0) {
+        throw new Error(result.errors[0].message);
+      }
+      await loadPayments();
+    } catch (err) {
+      console.error(err);
+      setError("Unable to update payment status.");
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      <h2 className="section-title">Payments & Billing</h2>
-      <DataTable
-        data={payments}
-        columns={[
-          { header: "Student", accessor: (payment) => studentMap.get(payment.studentId) ?? payment.studentId },
-          { header: "Amount", accessor: (payment) => `$${payment.amount.toFixed(2)}` },
-          { header: "Status", accessor: (payment) => payment.status },
-          { header: "Description", accessor: (payment) => payment.description ?? "--" },
-          {
-            header: "Actions",
-            accessor: (payment) => (
-              <div className="flex gap-2">
-                <button className="text-primary-500" onClick={() => updateStatus(payment, "PAID")} type="button">
-                  Mark Paid
-                </button>
-                <button className="text-amber-500" onClick={() => updateStatus(payment, "OVERDUE")} type="button">
-                  Mark Overdue
-                </button>
-              </div>
-            ),
-          },
-        ]}
-      />
-    </div>
+    <RoleDashboard role="ADMIN" title="Payments">
+      {loading && <LoadingState message="Loading payments..." />}
+      {error && !loading && <ErrorState message={error} onRetry={loadPayments} />}
+      {!loading && !error && (
+        <SimpleTable
+          columns={[
+            {
+              header: "Student",
+              accessor: (item: Payment) => item.student?.fullName ?? item.student?.email ?? item.studentId,
+            },
+            { header: "Amount", accessor: (item: Payment) => `$${item.amount.toFixed(2)}` },
+            {
+              header: "Status",
+              accessor: (item: Payment) => (
+                <select
+                  value={item.status}
+                  onChange={(event) => void handleStatusChange(item, event.target.value as Status)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  disabled={savingId === item.id}
+                >
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              ),
+            },
+            {
+              header: "Description",
+              accessor: (item: Payment) => item.description ?? "--",
+            },
+            {
+              header: "Recorded",
+              accessor: (item: Payment) => (item.timestamp ? new Date(item.timestamp).toLocaleString() : "--"),
+            },
+          ]}
+          data={payments}
+          emptyMessage="No payments recorded."
+        />
+      )}
+    </RoleDashboard>
   );
 }

@@ -1,15 +1,18 @@
 import { defineStorage } from "@aws-amplify/backend";
 
 export const storage = defineStorage({
-  name: "documents",
+  name: "afcsResourceStorage",
   access: (allow) => ({
-    "passport-photos/*": [allow.authenticated.to(["read", "write"])],
-    "medical-records/*": [
-      allow.groups(["ADMIN"]).to(["read", "write"]),
-      allow.owner().to(["read", "write"]),
+    "private/{entity_id}/*": [
+      allow.authenticated.to(["read", "write", "delete"]),
     ],
-    "course-resources/*": [
-      allow.authenticated.to(["read", "write"]),
+    "protected/{entity_id}/*": [
+      allow.authenticated.to(["read", "write", "delete"]),
+      allow.groups(["ADMIN"]).to(["read"]),
+    ],
+    "public/*": [
+      allow.guest.to(["read"]),
+      allow.authenticated.to(["read"]),
     ],
   }),
 });

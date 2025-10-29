@@ -3,7 +3,7 @@ import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 import { storage } from "./storage/resource";
 
-export const backend = defineBackend({
+export default defineBackend({
   auth,
   data,
   storage,

@@ -1,27 +1,18 @@
 "use client";
 
-import { Amplify } from "aws-amplify";
-import outputs from "../../amplify_outputs.json";
+import { AuthProvider } from "@/context/AuthContext";
+import { configureAmplify } from "@/lib/amplifyConfig";
 import { ThemeProvider } from "next-themes";
-import { PropsWithChildren, useEffect, useRef } from "react";
+import { useEffect, type ReactNode } from "react";
 
-const configureAmplify = () => {
-  Amplify.configure(outputs, { ssr: true });
-};
-
-export default function Providers({ children }: PropsWithChildren) {
-  const configured = useRef(false);
-
+export const Providers = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
-    if (!configured.current) {
-      configureAmplify();
-      configured.current = true;
-    }
+    configureAmplify();
   }, []);
 
   return (
-    <ThemeProvider attribute="class" enableSystem defaultTheme="light">
-      {children}
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <AuthProvider>{children}</AuthProvider>
     </ThemeProvider>
   );
-}
+};

@@ -1,24 +1,18 @@
-import "./globals.css";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import Providers from "./providers";
-
-const inter = Inter({ subsets: ["latin"] });
+import type { ReactNode } from "react";
+import "./globals.css";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "AFCS Online University Portal",
+  title: "AFCS Online University ERP",
   description:
-    "Education resource management platform with student, instructor, and admin portals.",
+    "Comprehensive education resource management platform with role-based dashboards built on AWS Amplify.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html suppressHydrationWarning className="h-full" lang="en">
-      <body className={`${inter.className} min-h-full bg-gray-50 dark:bg-slate-950`}>
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen bg-gray-100 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
         <Providers>{children}</Providers>
       </body>
     </html>

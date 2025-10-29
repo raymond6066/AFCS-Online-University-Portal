@@ -1,33 +1,31 @@
 {
+  "version": "1",
   "auth": {
-    "aws_region": "us-east-1",
-    "user_pool_id": "us-east-1_example",
-    "web_client_id": "examplewebclient",
-    "native_client_id": "exampleNativeClient",
-    "oauth": {
-      "domain": "https://afcs-uni-erp.auth.us-east-1.amazoncognito.com",
-      "scope": [
-        "email",
-        "openid",
-        "profile",
-        "aws.cognito.signin.user.admin"
-      ],
-      "redirectSignIn": [
-        "http://localhost:3000/"
-      ],
-      "redirectSignOut": [
-        "http://localhost:3000/"
-      ],
-      "responseType": "code"
+    "afcsResource": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "userPoolId": "YOUR_USER_POOL_ID",
+      "userPoolClientId": "YOUR_USER_POOL_CLIENT_ID",
+      "identityPoolId": "YOUR_IDENTITY_POOL_ID",
+      "oauth": {
+        "domain": "your-domain.auth.YOUR_AWS_REGION.amazoncognito.com",
+        "scope": ["email", "openid", "profile"],
+        "redirectSignIn": ["http://localhost:3000/", "https://your-production-domain.com/"],
+        "redirectSignOut": ["http://localhost:3000/", "https://your-production-domain.com/"],
+        "responseType": "code"
+      }
     }
   },
   "data": {
-    "aws_region": "us-east-1",
-    "api_url": "https://example.appsync-api.us-east-1.amazonaws.com/graphql",
-    "default_authorization_type": "AMAZON_COGNITO_USER_POOLS"
+    "afcsData": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "url": "https://your-appsync-api-id.appsync-api.YOUR_AWS_REGION.amazonaws.com/graphql",
+      "authMode": "userPool"
+    }
   },
   "storage": {
-    "aws_region": "us-east-1",
-    "bucket_name": "afcs-uni-erp-documents"
+    "afcsResourceStorage": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "bucketName": "your-storage-bucket-name"
+    }
   }
 }

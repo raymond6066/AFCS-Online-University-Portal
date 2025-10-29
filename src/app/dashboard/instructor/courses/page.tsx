@@ -1,25 +1,56 @@
 "use client";
 
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { SimpleTable } from "@/components/tables/SimpleTable";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { useAuthContext } from "@/context/AuthContext";
+import { client } from "@/lib/amplifyClient";
 import { useEffect, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { Course } from "../../../../lib/schema";
-import { listInstructorCourses } from "../../../../services/data";
+
+type CourseRecord = {
+  id: string;
+  title: string;
+  code: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  enrollmentCount: number;
+};
 
 export default function InstructorCoursesPage() {
-  const auth = useCurrentUserProfile();
-  const [courses, setCourses] = useState<Course[]>([]);
+  const { user } = useAuthContext();
+  const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.profile) return;
-    const load = async () => {
+    const loadCourses = async () => {
+      if (!user) return;
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        const data = await listInstructorCourses(auth.profile!.id);
-        setCourses(data);
+        const { data } = await client.models.Course.list({
+          filter: { instructorId: { eq: user.id } },
+        });
+
+        const records: CourseRecord[] = await Promise.all(
+          (data ?? []).map(async (course) => {
+            const { data: enrollments } = await client.models.Enrollment.list({
+              filter: { courseId: { eq: course.id } },
+            });
+            return {
+              id: course.id,
+              title: course.title,
+              code: course.code,
+              startDate: course.startDate,
+              endDate: course.endDate,
+              enrollmentCount: enrollments?.length ?? 0,
+            };
+          })
+        );
+
+        setCourses(records);
       } catch (err) {
         console.error(err);
         setError("Unable to load courses.");
@@ -27,29 +58,32 @@ export default function InstructorCoursesPage() {
         setLoading(false);
       }
     };
-    load();
-  }, [auth.profile]);
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading courses..." />;
-  }
-
-  if (error) {
-    return <ErrorState message={error} />;
-  }
+    void loadCourses();
+  }, [user]);
 
   return (
-    <div className="space-y-4">
-      <h2 className="section-title">My Courses</h2>
-      <DataTable
-        data={courses}
-        columns={[
-          { header: "Title", accessor: (course) => course.title },
-          { header: "Code", accessor: (course) => course.code },
-          { header: "Start Date", accessor: (course) => course.startDate ?? "TBD" },
-          { header: "End Date", accessor: (course) => course.endDate ?? "TBD" },
-        ]}
-      />
-    </div>
+    <RoleDashboard role="INSTRUCTOR" title="My courses">
+      {loading && <LoadingState message="Loading course details..." />}
+      {error && !loading && <ErrorState message={error} onRetry={() => window.location.reload()} />}
+      {!loading && !error && (
+        <SimpleTable
+          columns={[
+            { header: "Course", accessor: (item: CourseRecord) => item.title },
+            { header: "Code", accessor: (item: CourseRecord) => item.code },
+            {
+              header: "Schedule",
+              accessor: (item: CourseRecord) =>
+                item.startDate && item.endDate
+                  ? `${new Date(item.startDate).toLocaleDateString()} - ${new Date(item.endDate).toLocaleDateString()}`
+                  : "--",
+            },
+            { header: "Enrolled", accessor: (item: CourseRecord) => item.enrollmentCount },
+          ]}
+          data={courses}
+          emptyMessage="You have not been assigned to any courses yet."
+        />
+      )}
+    </RoleDashboard>
   );
 }

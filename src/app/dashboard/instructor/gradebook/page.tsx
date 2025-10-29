@@ -1,118 +1,190 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { Assignment, Grade, UserProfile } from "../../../../lib/schema";
-import { client } from "../../../../lib/amplifyClient";
-import { listAssignmentsForCourses, listGradesForStudent, listInstructorCourses, listUserProfiles } from "../../../../services/data";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { useAuthContext } from "@/context/AuthContext";
+import { client } from "@/lib/amplifyClient";
+import { useCallback, useEffect, useState } from "react";
+
+type Assignment = {
+  id: string;
+  title: string;
+  courseId: string;
+};
+
+type RosterMember = {
+  studentId: string;
+  studentSub: string;
+  fullName?: string | null;
+};
+
+type GradeRecord = {
+  id: string;
+  score?: number | null;
+  feedback?: string | null;
+};
 
 export default function InstructorGradebookPage() {
-  const auth = useCurrentUserProfile();
+  const { user } = useAuthContext();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [students, setStudents] = useState<UserProfile[]>([]);
-  const [grades, setGrades] = useState<Grade[]>([]);
+  const [selectedAssignment, setSelectedAssignment] = useState("");
+  const [roster, setRoster] = useState<RosterMember[]>([]);
+  const [grades, setGrades] = useState<Record<string, GradeRecord>>({});
+  const [scores, setScores] = useState<Record<string, string>>({});
+  const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [formLoading, setFormLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const loadAssignments = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data } = await client.models.Assignment.list({
+        filter: { postedBySub: { eq: user.cognitoSub } },
+      });
+      const assignmentList = (data ?? []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        courseId: item.courseId,
+      }));
+      setAssignments(assignmentList);
+      if (assignmentList.length > 0) {
+        setSelectedAssignment((prev) => prev || assignmentList[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unable to load assignments.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    if (!auth.profile) return;
-    const load = async () => {
+    void loadAssignments();
+  }, [loadAssignments]);
+
+  useEffect(() => {
+    const loadRosterAndGrades = async () => {
+      if (!selectedAssignment) return;
+      const assignment = assignments.find((item) => item.id === selectedAssignment);
+      if (!assignment) return;
+
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        const courses = await listInstructorCourses(auth.profile!.id);
-        const assignmentData = await listAssignmentsForCourses(courses.map((course) => course.id));
-        setAssignments(assignmentData);
-        const studentProfiles = await listUserProfiles();
-        const studentList = studentProfiles.filter((profile) => profile.role === "STUDENT");
-        setStudents(studentList);
-        const gradeResults = await Promise.all(
-          studentList.map((student) => listGradesForStudent(student.id))
-        );
-        setGrades(gradeResults.flat());
+        const { data: enrollmentData } = await client.models.Enrollment.list({
+          filter: { courseId: { eq: assignment.courseId } },
+        });
+
+        const rosterMembers: RosterMember[] = (enrollmentData ?? []).map((enrollment) => ({
+          studentId: enrollment.studentId,
+          studentSub: enrollment.studentSub,
+          fullName: (enrollment.student as any)?.fullName ?? undefined,
+        }));
+        setRoster(rosterMembers);
+
+        const { data: gradeData } = await client.models.Grade.list({
+          filter: { assignmentId: { eq: selectedAssignment } },
+        });
+
+        const gradeMap: Record<string, GradeRecord> = {};
+        const scoreMap: Record<string, string> = {};
+        const feedbackMap: Record<string, string> = {};
+        (gradeData ?? []).forEach((grade) => {
+          gradeMap[grade.studentId] = {
+            id: grade.id,
+            score: grade.score,
+            feedback: grade.feedback,
+          };
+          if (grade.score !== undefined && grade.score !== null) {
+            scoreMap[grade.studentId] = String(grade.score);
+          }
+          if (grade.feedback) {
+            feedbackMap[grade.studentId] = grade.feedback;
+          }
+        });
+        setGrades(gradeMap);
+        setScores(scoreMap);
+        setFeedback(feedbackMap);
       } catch (err) {
         console.error(err);
-        setError("Unable to load gradebook.");
+        setError("Unable to load gradebook data.");
       } finally {
         setLoading(false);
       }
     };
-    load();
-  }, [auth.profile]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!auth.profile) return;
-    const formData = new FormData(event.currentTarget);
-    const assignmentId = formData.get("assignmentId")?.toString() ?? "";
-    const studentId = formData.get("studentId")?.toString() ?? "";
-    const score = Number(formData.get("score") ?? 0);
-    const feedback = formData.get("feedback")?.toString() ?? undefined;
+    void loadRosterAndGrades();
+  }, [assignments, selectedAssignment]);
 
-    if (!assignmentId || !studentId) {
-      setError("Assignment and student are required.");
-      return;
-    }
+  const handleSave = async () => {
+    if (!user || !selectedAssignment) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
 
     try {
-      setFormLoading(true);
-      const existing = grades.find((grade) => grade.assignmentId === assignmentId && grade.studentId === studentId);
-      const student = students.find((profile) => profile.id === studentId);
-      if (existing) {
-        const response = await client.models.Grade.update({
-          id: existing.id,
-          score,
-          feedback,
-          gradedById: auth.profile.id,
-          studentOwner: student?.cognitoSub,
-        });
-        if (response.data) {
-          setGrades((prev) => prev.map((grade) => (grade.id === existing.id ? response.data! : grade)));
-        }
-      } else {
-        const response = await client.models.Grade.create({
-          assignmentId,
-          studentId,
-          score,
-          feedback,
-          gradedById: auth.profile.id,
-          studentOwner: student?.cognitoSub,
-        });
-        if (response.data) {
-          setGrades((prev) => [response.data!, ...prev]);
-        }
-      }
-      event.currentTarget.reset();
+      await Promise.all(
+        roster.map(async (member) => {
+          const scoreValue = scores[member.studentId];
+          const parsedScore = scoreValue ? Number(scoreValue) : undefined;
+          const gradeFeedback = feedback[member.studentId] || undefined;
+          const existing = grades[member.studentId];
+
+          if (existing) {
+            const result = await client.models.Grade.update({
+              id: existing.id,
+              score: parsedScore,
+              feedback: gradeFeedback,
+            });
+            if (result.errors && result.errors.length > 0) {
+              throw new Error(result.errors[0].message);
+            }
+          } else {
+            const result = await client.models.Grade.create({
+              assignmentId: selectedAssignment,
+              studentId: member.studentId,
+              studentSub: member.studentSub,
+              score: parsedScore,
+              feedback: gradeFeedback,
+              gradedById: user.id,
+              gradedBySub: user.cognitoSub,
+            });
+            if (result.errors && result.errors.length > 0) {
+              throw new Error(result.errors[0].message);
+            }
+          }
+        })
+      );
+      setSuccess("Grades saved successfully.");
     } catch (err) {
       console.error(err);
-      setError("Unable to save grade.");
+      setError("Unable to save grades.");
     } finally {
-      setFormLoading(false);
+      setSaving(false);
     }
   };
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading gradebook..." />;
-  }
-
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-  const studentMap = new Map(students.map((student) => [student.id, student.fullName ?? student.email]));
-  const assignmentMap = new Map(assignments.map((assignment) => [assignment.id, assignment.title]));
-
   return (
-    <div className="space-y-6">
-      <div className="card space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Record Grade</h2>
-        <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+    <RoleDashboard role="INSTRUCTOR" title="Gradebook">
+      {loading && <LoadingState message="Loading gradebook..." />}
+      {error && !loading && <ErrorState message={error} />}
+      {!loading && !error && (
+        <div className="space-y-6">
+          {success && <p className="rounded-2xl bg-emerald-500/10 px-4 py-2 text-sm text-emerald-600">{success}</p>}
           <div>
-            <label htmlFor="assignmentId">Assignment</label>
-            <select id="assignmentId" name="assignmentId" required>
-              <option value="">Select assignment</option>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Assignment</label>
+            <select
+              value={selectedAssignment}
+              onChange={(event) => setSelectedAssignment(event.target.value)}
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            >
               {assignments.map((assignment) => (
                 <option key={assignment.id} value={assignment.id}>
                   {assignment.title}
@@ -120,45 +192,54 @@ export default function InstructorGradebookPage() {
               ))}
             </select>
           </div>
-          <div>
-            <label htmlFor="studentId">Student</label>
-            <select id="studentId" name="studentId" required>
-              <option value="">Select student</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.fullName ?? student.email}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="score">Score</label>
-            <input id="score" name="score" type="number" min="0" max="100" step="0.1" required />
-          </div>
-          <div className="md:col-span-2">
-            <label htmlFor="feedback">Feedback</label>
-            <textarea id="feedback" name="feedback" rows={3} />
-          </div>
-          <div className="md:col-span-2 flex justify-end">
-            <button className="btn-primary" disabled={formLoading} type="submit">
-              {formLoading ? "Saving..." : "Save grade"}
-            </button>
-          </div>
-        </form>
-      </div>
 
-      <div className="space-y-4">
-        <h3 className="section-title">Grade Records</h3>
-        <DataTable
-          data={grades}
-          columns={[
-            { header: "Assignment", accessor: (grade) => assignmentMap.get(grade.assignmentId) ?? "" },
-            { header: "Student", accessor: (grade) => studentMap.get(grade.studentId) ?? "" },
-            { header: "Score", accessor: (grade) => grade.score },
-            { header: "Feedback", accessor: (grade) => grade.feedback ?? "--" },
-          ]}
-        />
-      </div>
-    </div>
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/70">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm dark:divide-slate-800">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/70">
+                <tr>
+                  <th className="px-6 py-4 font-semibold text-slate-600 dark:text-slate-200">Student</th>
+                  <th className="px-6 py-4 font-semibold text-slate-600 dark:text-slate-200">Score</th>
+                  <th className="px-6 py-4 font-semibold text-slate-600 dark:text-slate-200">Feedback</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {roster.map((member) => (
+                  <tr key={member.studentId} className="hover:bg-slate-100/60 dark:hover:bg-slate-800/60">
+                    <td className="px-6 py-4 text-slate-700 dark:text-slate-200">{member.fullName ?? member.studentId}</td>
+                    <td className="px-6 py-4">
+                      <input
+                        type="number"
+                        value={scores[member.studentId] ?? ""}
+                        onChange={(event) =>
+                          setScores((prev) => ({ ...prev, [member.studentId]: event.target.value }))
+                        }
+                        className="w-24 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                    </td>
+                    <td className="px-6 py-4">
+                      <input
+                        value={feedback[member.studentId] ?? ""}
+                        onChange={(event) =>
+                          setFeedback((prev) => ({ ...prev, [member.studentId]: event.target.value }))
+                        }
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <button
+            onClick={handleSave}
+            className="rounded-2xl bg-primary px-6 py-3 text-base font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/40"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save grades"}
+          </button>
+        </div>
+      )}
+    </RoleDashboard>
   );
 }

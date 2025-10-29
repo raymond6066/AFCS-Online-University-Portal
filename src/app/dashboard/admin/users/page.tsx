@@ -1,115 +1,123 @@
 "use client";
 
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { SimpleTable } from "@/components/tables/SimpleTable";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { client } from "@/lib/amplifyClient";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { UserProfile, UserRole } from "../../../../lib/schema";
-import { listUserProfiles } from "../../../../services/data";
-import { getUrl } from "aws-amplify/storage";
+
+type User = {
+  id: string;
+  fullName?: string | null;
+  email: string;
+  role: string;
+  department?: string | null;
+};
+
+const roleFilters = ["ALL", "STUDENT", "INSTRUCTOR", "ADMIN"] as const;
+
+type RoleFilter = (typeof roleFilters)[number];
 
 export default function AdminUsersPage() {
-  const auth = useCurrentUserProfile();
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [roleFilter, setRoleFilter] = useState<UserRole | "ALL">("ALL");
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const data = await listUserProfiles();
-        setUsers(data);
-      } catch (err) {
-        console.error(err);
-        setError("Unable to load users.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
 
-  const filteredUsers = useMemo(() => {
-    if (roleFilter === "ALL") return users;
-    return users.filter((user) => user.role === roleFilter);
-  }, [users, roleFilter]);
-
-  const handleDownload = async (url?: string | null) => {
-    if (!url) return;
     try {
-      const key = new URL(url).pathname.replace(/^\//, "");
-      const signed = await getUrl({ key, options: { expiresIn: 60 } });
-      window.open(signed.url.toString(), "_blank");
+      const { data } = await client.models.UserProfile.list({});
+      setUsers((data ?? []) as User[]);
     } catch (err) {
       console.error(err);
-      alert("Unable to download document. Ensure S3 permissions are configured.");
+      setError("Unable to load user profiles.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading users..." />;
-  }
+  useEffect(() => {
+    void loadUsers();
+  }, []);
 
-  if (error) {
-    return <ErrorState message={error} />;
-  }
+  const filtered = useMemo(() => {
+    return users.filter((user) => {
+      const matchesRole = roleFilter === "ALL" || user.role === roleFilter;
+      const matchesSearch = search
+        ? (user.fullName ?? "").toLowerCase().includes(search.toLowerCase()) ||
+          user.email.toLowerCase().includes(search.toLowerCase())
+        : true;
+      return matchesRole && matchesSearch;
+    });
+  }, [roleFilter, search, users]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="section-title">User Management</h2>
-        <select
-          className="w-48 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-          value={roleFilter}
-          onChange={(event) => setRoleFilter(event.target.value as UserRole | "ALL")}
-        >
-          <option value="ALL">All roles</option>
-          <option value="STUDENT">Students</option>
-          <option value="INSTRUCTOR">Instructors</option>
-          <option value="ADMIN">Administrators</option>
-        </select>
-      </div>
-      <DataTable
-        data={filteredUsers}
-        columns={[
-          { header: "Name", accessor: (user) => user.fullName ?? user.email },
-          { header: "Email", accessor: (user) => user.email },
-          { header: "Role", accessor: (user) => user.role },
-          { header: "Department", accessor: (user) => user.department ?? "--" },
-          {
-            header: "Passport",
-            accessor: (user) =>
-              user.passportPhotoUrl ? (
-                <button
-                  className="text-primary-500"
-                  onClick={() => handleDownload(user.passportPhotoUrl)}
-                  type="button"
-                >
-                  View
-                </button>
-              ) : (
-                "--"
-              ),
-          },
-          {
-            header: "Medical Record",
-            accessor: (user) =>
-              user.medicalRecordUrl ? (
-                <button
-                  className="text-primary-500"
-                  onClick={() => handleDownload(user.medicalRecordUrl)}
-                  type="button"
-                >
-                  Download
-                </button>
-              ) : (
-                "--"
-              ),
-          },
-        ]}
-      />
-    </div>
+    <RoleDashboard role="ADMIN" title="User management">
+      {loading && <LoadingState message="Loading user profiles..." />}
+      {error && !loading && <ErrorState message={error} onRetry={loadUsers} />}
+      {!loading && !error && (
+        <div className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Search</label>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by name or email"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Role filter</label>
+              <select
+                value={roleFilter}
+                onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              >
+                {roleFilters.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <SimpleTable
+            columns={[
+              {
+                header: "Name",
+                accessor: (item: User) => item.fullName ?? "--",
+              },
+              { header: "Email", accessor: (item: User) => item.email },
+              { header: "Role", accessor: (item: User) => item.role },
+              {
+                header: "Department",
+                accessor: (item: User) => item.department ?? "--",
+              },
+              {
+                header: "",
+                accessor: (item: User) => (
+                  <Link
+                    href={`/dashboard/admin/users/${item.id}`}
+                    className="inline-flex items-center rounded-xl bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/20"
+                  >
+                    View
+                  </Link>
+                ),
+              },
+            ]}
+            data={filtered}
+            emptyMessage="No users found."
+          />
+        </div>
+      )}
+    </RoleDashboard>
   );
 }

@@ -1,35 +1,25 @@
 "use client";
 
-import { useEffect } from "react";
-import { getCurrentUser } from "aws-amplify/auth";
+import { useAuthContext } from "@/context/AuthContext";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { useRouter } from "next/navigation";
-import { client } from "../../lib/amplifyClient";
-import { DASHBOARD_ROUTE, isRole } from "../../lib/roles";
-import { LoadingState } from "../../components/ui/StateBlocks";
+import { useEffect } from "react";
 
-export default function DashboardRedirect() {
+export default function DashboardEntry() {
   const router = useRouter();
+  const { loading, role, user, signIn } = useAuthContext();
 
   useEffect(() => {
-    const route = async () => {
-      try {
-        const user = await getCurrentUser();
-        const result = await client.models.UserProfile.list({
-          filter: { cognitoSub: { eq: user.userId } },
-        });
-        const profile = result.data[0];
-        if (profile && isRole(profile.role)) {
-          router.replace(DASHBOARD_ROUTE[profile.role]);
-        } else {
-          router.replace("/signup");
-        }
-      } catch (err) {
-        console.error(err);
-        router.replace("/login");
+    if (!loading) {
+      if (!user) {
+        void signIn();
+      } else if (role) {
+        router.replace(`/dashboard/${role.toLowerCase()}`);
+      } else {
+        router.replace("/signup");
       }
-    };
-    route();
-  }, [router]);
+    }
+  }, [loading, role, router, signIn, user]);
 
-  return <LoadingState label="Redirecting to your dashboard..." />;
+  return <LoadingState message="Redirecting to your dashboard..." />;
 }

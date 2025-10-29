@@ -1,148 +1,257 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { Attendance, Course, UserProfile } from "../../../../lib/schema";
-import { client } from "../../../../lib/amplifyClient";
-import { listAttendanceForStudent, listInstructorCourses, listUserProfiles } from "../../../../services/data";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { useAuthContext } from "@/context/AuthContext";
+import { client } from "@/lib/amplifyClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+type Course = { id: string; title: string };
+type RosterMember = {
+  studentId: string;
+  studentSub: string;
+  fullName?: string | null;
+};
+
+type AttendanceRecord = {
+  id: string;
+  studentId: string;
+  status: string;
+};
+
+const attendanceStatuses = ["PRESENT", "ABSENT", "LATE"] as const;
+
+type StatusValue = (typeof attendanceStatuses)[number];
 
 export default function InstructorAttendancePage() {
-  const auth = useCurrentUserProfile();
+  const { user } = useAuthContext();
   const [courses, setCourses] = useState<Course[]>([]);
-  const [students, setStudents] = useState<UserProfile[]>([]);
-  const [records, setRecords] = useState<Attendance[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [roster, setRoster] = useState<RosterMember[]>([]);
+  const [attendance, setAttendance] = useState<Record<string, AttendanceRecord>>({});
+  const [statuses, setStatuses] = useState<Record<string, StatusValue>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [formLoading, setFormLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const loadCourses = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data } = await client.models.Course.list({
+        filter: { instructorId: { eq: user.id } },
+      });
+      const courseList = (data ?? []).map((course) => ({ id: course.id, title: course.title }));
+      setCourses(courseList);
+      if (courseList.length > 0) {
+        setSelectedCourse((prev) => prev || courseList[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unable to load courses.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    if (!auth.profile) return;
-    const load = async () => {
+    void loadCourses();
+  }, [loadCourses]);
+
+  useEffect(() => {
+    const loadRosterAndAttendance = async () => {
+      if (!selectedCourse) return;
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        const [courseData, userProfiles] = await Promise.all([
-          listInstructorCourses(auth.profile!.id),
-          listUserProfiles(),
-        ]);
-        setCourses(courseData);
-        setStudents(userProfiles.filter((profile) => profile.role === "STUDENT"));
+        const { data: enrollmentData } = await client.models.Enrollment.list({
+          filter: { courseId: { eq: selectedCourse } },
+        });
+
+        const rosterMembers: RosterMember[] = (enrollmentData ?? []).map((enrollment) => ({
+          studentId: enrollment.studentId,
+          studentSub: enrollment.studentSub,
+          fullName: (enrollment.student as any)?.fullName ?? undefined,
+        }));
+        setRoster(rosterMembers);
+
+        const { data: attendanceData } = await client.models.Attendance.list({
+          filter: {
+            and: [
+              { courseId: { eq: selectedCourse } },
+              { date: { eq: selectedDate } },
+            ],
+          },
+        });
+
+        const attendanceMap: Record<string, AttendanceRecord> = {};
+        const statusMap: Record<string, StatusValue> = {};
+        (attendanceData ?? []).forEach((record) => {
+          attendanceMap[record.studentId] = {
+            id: record.id,
+            studentId: record.studentId,
+            status: record.status as StatusValue,
+          };
+          statusMap[record.studentId] = record.status as StatusValue;
+        });
+
+        setAttendance(attendanceMap);
+        setStatuses((prev) => ({ ...statusMap }));
       } catch (err) {
         console.error(err);
-        setError("Unable to load attendance data.");
+        setError("Unable to load roster or attendance.");
       } finally {
         setLoading(false);
       }
     };
-    load();
-  }, [auth.profile]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!auth.profile) return;
-    const formData = new FormData(event.currentTarget);
-    const courseId = formData.get("courseId")?.toString() ?? "";
-    const studentId = formData.get("studentId")?.toString() ?? "";
-    const date = formData.get("date")?.toString() ?? "";
-    const status = formData.get("status")?.toString() ?? "PRESENT";
+    void loadRosterAndAttendance();
+  }, [selectedCourse, selectedDate]);
 
-    if (!courseId || !studentId || !date) {
-      setError("Course, student, and date are required.");
-      return;
-    }
+  const handleStatusChange = (studentId: string, value: StatusValue) => {
+    setStatuses((prev) => ({ ...prev, [studentId]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!user || !selectedCourse) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
 
     try {
-      setFormLoading(true);
-      const student = students.find((profile) => profile.id === studentId);
-      const response = await client.models.Attendance.create({
-        courseId,
-        studentId,
-        date,
-        status: status as Attendance["status"],
-        markedById: auth.profile.id,
-        studentOwner: student?.cognitoSub,
-      });
-      if (response.data) {
-        const updatedRecords = await listAttendanceForStudent(studentId);
-        setRecords(updatedRecords);
-      }
-      event.currentTarget.reset();
+      await Promise.all(
+        roster.map(async (member) => {
+          const status = statuses[member.studentId] ?? "PRESENT";
+          const existing = attendance[member.studentId];
+          if (existing) {
+            const result = await client.models.Attendance.update({
+              id: existing.id,
+              status,
+            });
+            if (result.errors && result.errors.length > 0) {
+              throw new Error(result.errors[0].message);
+            }
+          } else {
+            const result = await client.models.Attendance.create({
+              courseId: selectedCourse,
+              studentId: member.studentId,
+              studentSub: member.studentSub,
+              date: selectedDate,
+              status,
+              markedById: user.id,
+              markedBySub: user.cognitoSub,
+            });
+            if (result.errors && result.errors.length > 0) {
+              throw new Error(result.errors[0].message);
+            }
+          }
+        })
+      );
+
+      setSuccess("Attendance saved successfully.");
     } catch (err) {
       console.error(err);
-      setError("Failed to mark attendance.");
+      setError("Unable to save attendance.");
     } finally {
-      setFormLoading(false);
+      setSaving(false);
     }
   };
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading attendance..." />;
-  }
-
-  if (error) {
-    return <ErrorState message={error} />;
-  }
+  const summary = useMemo(() => {
+    return roster.reduce(
+      (acc, member) => {
+        const status = statuses[member.studentId] ?? "PRESENT";
+        acc[status] = (acc[status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<StatusValue, number>
+    );
+  }, [roster, statuses]);
 
   return (
-    <div className="space-y-6">
-      <div className="card space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Mark Attendance</h2>
-        <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="courseId">Course</label>
-            <select id="courseId" name="courseId" required>
-              <option value="">Select a course</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.title}
-                </option>
-              ))}
-            </select>
+    <RoleDashboard role="INSTRUCTOR" title="Attendance">
+      {loading && <LoadingState message="Loading roster..." />}
+      {error && !loading && <ErrorState message={error} />}
+      {!loading && !error && (
+        <div className="space-y-6">
+          {success && <p className="rounded-2xl bg-emerald-500/10 px-4 py-2 text-sm text-emerald-600">{success}</p>}
+          <div className="grid gap-6 md:grid-cols-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Course</label>
+              <select
+                value={selectedCourse}
+                onChange={(event) => setSelectedCourse(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              >
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Date</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </div>
+            <div className="rounded-3xl bg-slate-100/70 p-4 text-sm text-slate-600 dark:bg-slate-800/70 dark:text-slate-200">
+              <p>PRESENT: {summary.PRESENT ?? 0}</p>
+              <p>LATE: {summary.LATE ?? 0}</p>
+              <p>ABSENT: {summary.ABSENT ?? 0}</p>
+            </div>
           </div>
-          <div>
-            <label htmlFor="studentId">Student</label>
-            <select id="studentId" name="studentId" required>
-              <option value="">Select a student</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.fullName ?? student.email}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="date">Date</label>
-            <input id="date" name="date" type="date" required />
-          </div>
-          <div>
-            <label htmlFor="status">Status</label>
-            <select id="status" name="status">
-              <option value="PRESENT">Present</option>
-              <option value="ABSENT">Absent</option>
-              <option value="LATE">Late</option>
-            </select>
-          </div>
-          <div className="md:col-span-2 flex justify-end">
-            <button className="btn-primary" disabled={formLoading} type="submit">
-              {formLoading ? "Saving..." : "Save record"}
-            </button>
-          </div>
-        </form>
-      </div>
 
-      <div className="space-y-4">
-        <h3 className="section-title">Recent Attendance Records</h3>
-        <DataTable
-          data={records}
-          columns={[
-            { header: "Date", accessor: (record) => record.date },
-            { header: "Status", accessor: (record) => record.status },
-            { header: "Course", accessor: (record) => record.courseId },
-          ]}
-          emptyMessage="Mark attendance to see history."
-        />
-      </div>
-    </div>
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/70">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm dark:divide-slate-800">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/70">
+                <tr>
+                  <th className="px-6 py-4 font-semibold text-slate-600 dark:text-slate-200">Student</th>
+                  <th className="px-6 py-4 font-semibold text-slate-600 dark:text-slate-200">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {roster.map((member) => (
+                  <tr key={member.studentId} className="hover:bg-slate-100/60 dark:hover:bg-slate-800/60">
+                    <td className="px-6 py-4 text-slate-700 dark:text-slate-200">{member.fullName ?? member.studentId}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={statuses[member.studentId] ?? "PRESENT"}
+                        onChange={(event) => handleStatusChange(member.studentId, event.target.value as StatusValue)}
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      >
+                        {attendanceStatuses.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <button
+            onClick={handleSave}
+            className="rounded-2xl bg-primary px-6 py-3 text-base font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/40"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save attendance"}
+          </button>
+        </div>
+      )}
+    </RoleDashboard>
   );
 }

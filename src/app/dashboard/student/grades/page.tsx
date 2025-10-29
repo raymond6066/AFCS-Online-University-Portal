@@ -1,31 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { DataTable } from "../../../../components/ui/DataTable";
-import { LoadingState, ErrorState } from "../../../../components/ui/StateBlocks";
-import { useCurrentUserProfile } from "../../../../hooks/useCurrentUserProfile";
-import type { Assignment, Grade } from "../../../../lib/schema";
-import { listAssignmentsForCourses, listGradesForStudent, listStudentCourses } from "../../../../services/data";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { SimpleTable } from "@/components/tables/SimpleTable";
+import { RoleDashboard } from "@/components/layout/RoleDashboard";
+import { useAuthContext } from "@/context/AuthContext";
+import { client } from "@/lib/amplifyClient";
+import { useEffect, useMemo, useState } from "react";
+
+type GradeRecord = {
+  id: string;
+  assignmentTitle?: string | null;
+  score?: number | null;
+  feedback?: string | null;
+  gradedBy?: string | null;
+};
 
 export default function StudentGradesPage() {
-  const auth = useCurrentUserProfile();
-  const [grades, setGrades] = useState<Grade[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const { user } = useAuthContext();
+  const [grades, setGrades] = useState<GradeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.profile) return;
-    const load = async () => {
+    const loadGrades = async () => {
+      if (!user) return;
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        const [gradeData, courses] = await Promise.all([
-          listGradesForStudent(auth.profile!.id),
-          listStudentCourses(auth.profile!.id),
-        ]);
-        setGrades(gradeData);
-        const assignmentData = await listAssignmentsForCourses(courses.map((course) => course.id));
-        setAssignments(assignmentData);
+        const { data } = await client.models.Grade.list({
+          filter: { studentSub: { eq: user.cognitoSub } },
+        });
+
+        const gradeRecords: GradeRecord[] = (data ?? []).map((grade) => ({
+          id: grade.id,
+          assignmentTitle: (grade.assignment as any)?.title ?? grade.assignmentId,
+          score: grade.score,
+          feedback: grade.feedback,
+          gradedBy: (grade.gradedBy as any)?.fullName ?? undefined,
+        }));
+
+        setGrades(gradeRecords);
       } catch (err) {
         console.error(err);
         setError("Unable to load grades.");
@@ -33,30 +49,39 @@ export default function StudentGradesPage() {
         setLoading(false);
       }
     };
-    load();
-  }, [auth.profile]);
 
-  if (auth.loading || loading) {
-    return <LoadingState label="Loading gradebook..." />;
-  }
+    void loadGrades();
+  }, [user]);
 
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-  const assignmentMap = new Map(assignments.map((assignment) => [assignment.id, assignment.title]));
+  const average = useMemo(() => {
+    if (grades.length === 0) return null;
+    const total = grades.reduce((sum, grade) => sum + (grade.score ?? 0), 0);
+    return total / grades.length;
+  }, [grades]);
 
   return (
-    <div className="space-y-4">
-      <h2 className="section-title">Grades</h2>
-      <DataTable
-        data={grades}
-        columns={[
-          { header: "Assignment", accessor: (grade) => assignmentMap.get(grade.assignmentId) ?? "" },
-          { header: "Score", accessor: (grade) => grade.score },
-          { header: "Feedback", accessor: (grade) => grade.feedback ?? "--" },
-        ]}
-      />
-    </div>
+    <RoleDashboard role="STUDENT" title="Grades">
+      {loading && <LoadingState message="Loading gradebook..." />}
+      {error && !loading && <ErrorState message={error} onRetry={() => window.location.reload()} />}
+      {!loading && !error && (
+        <div className="space-y-6">
+          {average !== null && (
+            <div className="rounded-3xl bg-emerald-500/10 p-6 text-sm font-semibold text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">
+              Current average: {average.toFixed(2)}
+            </div>
+          )}
+          <SimpleTable
+            columns={[
+              { header: "Assignment", accessor: (item: GradeRecord) => item.assignmentTitle ?? "--" },
+              { header: "Score", accessor: (item: GradeRecord) => item.score ?? "--" },
+              { header: "Instructor", accessor: (item: GradeRecord) => item.gradedBy ?? "--" },
+              { header: "Feedback", accessor: (item: GradeRecord) => item.feedback ?? "--" },
+            ]}
+            data={grades}
+            emptyMessage="No grades published yet."
+          />
+        </div>
+      )}
+    </RoleDashboard>
   );
 }
