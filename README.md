@@ -1,85 +1,141 @@
-# NextAdmin - Next.js Admin Dashboard Template and Components
+# AFCS Online University ERP
 
-**NextAdmin** is a Free, open-source Next.js admin dashboard toolkit featuring 200+ UI components and templates that come with pre-built elements, components, pages, high-quality design, integrations, and much more to help you create powerful admin dashboards with ease.
+A full-stack education resource management portal built with **Next.js 15 (React 19 + TypeScript)**, **Tailwind CSS**, and **AWS Amplify Gen 2**. The platform delivers secure, role-based experiences for students, instructors, and administrators, including course management, assignments, attendance tracking, grading, document storage, analytics, and more.
 
+## ✨ Key Capabilities
 
-[![nextjs admin template](https://cdn.pimjo.com/nextadmin-2.png)](https://nextadmin.co/)
+- **Amplify Auth (Cognito Hosted UI)** for secure email-based sign-up/sign-in and MFA support.
+- **Amplify Data (GraphQL)** models for user profiles, courses, assignments, grades, attendance, schedules, announcements, resource bookings, and payments with granular `@auth` rules.
+- **Amplify Storage (S3)** integration for protected uploads such as passports, medical records, and assignment attachments.
+- **Role-specific dashboards** with modern UI components, tables, and charts:
+  - Student portal for courses, assignments, grades, schedules, attendance, announcements, messages, and profile management.
+  - Instructor workspace for posting assignments, marking attendance, managing grades, creating announcements, and course oversight.
+  - Admin console for analytics, user administration with secure document access, payment tracking, resource booking approvals, and campus-wide announcements.
+- **Dark mode** support via `next-themes` and Tailwind’s `dark` classes.
+- Responsive layout with collapsible navigation, stat cards, tables, and chart visualizations.
 
-
-**NextAdmin** provides you with a diverse set of dashboard UI components, elements, examples and pages necessary for creating top-notch admin panels or dashboards with **powerful** features and integrations. Whether you are working on a complex web application or a basic website, **NextAdmin** has got you covered.
-
-### [✨ Visit Website](https://nextadmin.co/)
-### [🚀 Live Demo](https://demo.nextadmin.co/)
-### [📖 Docs](https://docs.nextadmin.co/)
-
-By leveraging the latest features of **Next.js 14** and key functionalities like **server-side rendering (SSR)**, **static site generation (SSG)**, and seamless **API route integration**, **NextAdmin** ensures optimal performance. With the added benefits of **React 18 advancements** and **TypeScript** reliability, **NextAdmin** is the ultimate choice to kickstart your **Next.js** project efficiently.
-
-## Installation
-
-1. Download/fork/clone the repo and Once you're in the correct directory, it's time to install all the necessary dependencies. You can do this by typing the following command:
+## 🧱 Project Structure
 
 ```
-npm install
+amplify/
+  auth/
+  data/
+    schema.graphql         # Amplify GraphQL data models with @auth rules
+    resource.ts            # Gen 2 data definition + client schema export
+  storage/
+  backend.ts               # Amplify backend entrypoint
+src/
+  app/
+    dashboard/             # Student, instructor, admin routes & pages
+    signup/                # Post-auth onboarding + document upload
+    layout.tsx             # Root layout with providers
+    providers.tsx          # Theme + Amplify + Auth contexts
+    globals.css            # Tailwind base styles
+  components/              # Layout, tables, cards, charts, feedback UI
+  context/AuthContext.tsx  # Auth-aware React context
+  hooks/                   # Amplify auth + role guard hooks
+  lib/                     # Amplify client/config and storage helpers
+  types/                   # Shared TypeScript types
+  utils/                   # Navigation link definitions
+amplify_outputs.json       # Placeholder for Amplify environment outputs
 ```
-If you're using **Yarn** as your package manager, the command will be:
 
+## 🚀 Getting Started
+
+1. **Install dependencies**
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+2. **Run the development server**
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+3. Visit `http://localhost:3000` to access the landing page. Sign in via the Cognito Hosted UI, complete your profile (upload passport and medical record), and you’ll be routed to the appropriate dashboard.
+
+> **Note:** The repo includes placeholder values inside `amplify_outputs.json`. After provisioning the backend (see below), Amplify will generate real configuration values that must replace these placeholders locally and in your deployment pipeline.
+
+## 🛠️ Amplify Backend (Gen 2) Overview
+
+The GraphQL schema (`amplify/data/schema.graphql`) defines:
+
+- `UserProfile` with role-based access control and protected fields (`medicalRecordUrl`, `passportPhotoUrl`).
+- Academic entities such as `Course`, `Assignment`, `Grade`, `Attendance`, `Schedule`, and `Enrollment` to establish student-course relationships.
+- Administrative models including `Announcement`, `ResourceBooking`, and `Payment` with nuanced auth rules (e.g., students can only read their own records, instructors manage their cohorts, admins retain global control).
+- Storage resources enforce protected access with admin-readable medical documents.
+
+Frontend data access leverages the Amplify Data client:
+
+```ts
+import { client } from "@/lib/amplifyClient";
+
+const { data } = await client.models.Course.list({
+  filter: { instructorId: { eq: user.id } },
+});
 ```
-yarn install
+
+File uploads use the modern Storage v2 API:
+
+```ts
+import { uploadPrivateFile } from "@/lib/storage";
+
+const key = await uploadPrivateFile(file, {
+  folder: "passports",
+  access: "protected",
+});
 ```
 
-2. Okay, you're almost there. Now all you need to do is start the development server. If you're using **npm**, the command is:
+Auth flows rely on Hosted UI redirects via `signInWithRedirect({ provider: "COGNITO" })`, and sessions are read through Amplify’s `getCurrentUser` + `fetchAuthSession` helpers.
 
-```
-npm run dev
-```
-And if you're using **Yarn**, it's:
+## ☁️ Deployment Guide (AWS Amplify Hosting)
 
-```
-yarn dev
-```
+1. **Initialize Amplify Gen 2 backend**
+   ```bash
+   npm install -g @aws-amplify/cli
+   amplify sandbox --config amplify/backend.ts
+   ```
+   Follow the prompts to provision Auth (Hosted UI), Data, and Storage resources. Update the OAuth domain/redirects in `amplify/auth/resource.ts` as needed.
 
-And voila! You're now ready to start developing. **Happy coding**!
+2. **Pull backend outputs locally**
+   ```bash
+   amplify pull
+   ```
+   This command generates a new `amplify_outputs.json`. Replace the placeholder file in the repo with the generated version so the React app can connect to the correct Amplify environment.
 
-## Highlighted Features
-**200+ Next.js Dashboard Ul Components and Templates** - includes a variety of prebuilt **Ul elements, components, pages, and examples** crafted with a high-quality design.
-Additionally, features seamless **essential integrations and extensive functionalities**.
+3. **Configure Cognito Hosted UI**
+   - In the Amplify Console, open the Auth resource.
+   - Set the domain prefix, callback URLs (`http://localhost:3000/`, production URL), and sign-out URLs.
+   - Add any OAuth providers if required.
 
-- A library of over **200** professional dashboard UI components and elements.
-- Five distinctive dashboard variations, catering to diverse use-cases.
-- A comprehensive set of essential dashboard and admin pages.
-- More than **45** **Next.js** files, ready for use.
-- Styling facilitated by **Tailwind CSS** files.
-- A design that resonates premium quality and high aesthetics.
-- A handy UI kit with assets.
-- Over ten web apps complete with examples.
-- Support for both **dark mode** and **light mode**.
-- Essential integrations including - Authentication (**NextAuth**), Database (**Postgres** with **Prisma**), and Search (**Algolia**).
-- Detailed and user-friendly documentation.
-- Customizable plugins and add-ons.
-- **TypeScript** compatibility.
-- Plus, much more!
+4. **Run locally with real backend**
+   ```bash
+   npm run dev
+   ```
+   Verify sign-in via Hosted UI, profile completion, file uploads, and dashboard CRUD flows.
 
-All these features and more make **NextAdmin** a robust, well-rounded solution for all your dashboard development needs.
+5. **Deploy to Amplify Hosting**
+   - Connect your Git repository in the Amplify Console.
+   - Configure build settings (e.g., `npm ci`, `npm run build`, `npm run start` for SSR).
+   - Provide environment variables if needed (e.g., overriding redirect URLs for production) and ensure the generated `amplify_outputs.json` is committed or injected as part of the build.
+   - Amplify automatically builds the Next.js app and serves it globally.
 
-## Update Logs
+6. **Post-deployment checks**
+   - Confirm Hosted UI redirect URLs include your production domain.
+   - Validate protected document access for admins only.
+   - Verify analytics/stat cards render correctly with live data.
 
-### Version 1.2.1 - [Mar 20, 2025]
-- Fix Peer dependency issues and NextConfig warning.
-- Updated apexcharts and react-apexhcarts to the latest version.
+## ✅ Testing Checklist
 
-### Version 1.2.0 - Major Upgrade and UI Improvements - [Jan 27, 2025]
+- Student flow: enrollment data, assignment listings, grade visibility, attendance summaries, schedule display, and announcement feeds.
+- Instructor flow: assignment creation (with optional attachments), attendance marking, gradebook updates, and instructor-specific announcements.
+- Admin flow: user management (including secure document previews), payment status updates, resource booking approvals, analytics chart rendering, and global announcements.
+- Dark mode toggle, responsive layouts, and role-based route protection.
 
-- Upgraded to Next.js v15 and updated dependencies
-- API integration with loading skeleton for tables and charts.
-- Improved code structure for better readability.
-- Rebuilt components like dropdown, sidebar, and all ui-elements using accessibility practices.
-- Using search-params to store dropdown selection and refetch data.
-- Semantic markups, better separation of concerns and more.
+## 📄 License
 
-### Version 1.1.0
-- Updated Dependencies
-- Removed Unused Integrations
-- Optimized App
-
-### Version 1.0
-- Initial Release - [May 13, 2024]
+This project customizes the original template to deliver a production-ready AFCS Online University ERP experience. Review original licensing terms if you plan to redistribute template assets.

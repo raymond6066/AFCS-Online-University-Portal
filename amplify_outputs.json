@@ -1,0 +1,31 @@
+{
+  "version": "1",
+  "auth": {
+    "afcsResource": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "userPoolId": "YOUR_USER_POOL_ID",
+      "userPoolClientId": "YOUR_USER_POOL_CLIENT_ID",
+      "identityPoolId": "YOUR_IDENTITY_POOL_ID",
+      "oauth": {
+        "domain": "your-domain.auth.YOUR_AWS_REGION.amazoncognito.com",
+        "scope": ["email", "openid", "profile"],
+        "redirectSignIn": ["http://localhost:3000/", "https://your-production-domain.com/"],
+        "redirectSignOut": ["http://localhost:3000/", "https://your-production-domain.com/"],
+        "responseType": "code"
+      }
+    }
+  },
+  "data": {
+    "afcsData": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "url": "https://your-appsync-api-id.appsync-api.YOUR_AWS_REGION.amazonaws.com/graphql",
+      "authMode": "userPool"
+    }
+  },
+  "storage": {
+    "afcsResourceStorage": {
+      "awsRegion": "YOUR_AWS_REGION",
+      "bucketName": "your-storage-bucket-name"
+    }
+  }
+}
