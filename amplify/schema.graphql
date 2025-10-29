@@ -1,0 +1,208 @@
+"""GraphQL schema for the AFCS Online University portal."""
+
+enum UserRole {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+enum AnnouncementAudience {
+  ALL
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum ResourceBookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+type UserProfile @model @auth(rules: [
+  { allow: owner, ownerField: "cognitoSub", identityClaim: "sub", operations: [create, read, update] },
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [read] }
+]) {
+  id: ID!
+  cognitoSub: String! @index(name: "bySub", queryField: "userProfileBySub")
+  email: AWSEmail! @unique
+  fullName: String
+  role: UserRole!
+  rank: String
+  serviceNumber: String
+  department: String
+  medicalRecordUrl: AWSURL @auth(rules: [
+    { allow: owner, ownerField: "cognitoSub", identityClaim: "sub", operations: [read, update] },
+    { allow: groups, groups: ["ADMIN"], operations: [read, update] }
+  ])
+  passportPhotoUrl: AWSURL @auth(rules: [
+    { allow: owner, ownerField: "cognitoSub", identityClaim: "sub", operations: [read, update] },
+    { allow: groups, groups: ["ADMIN"], operations: [read, update] }
+  ])
+  courses: [Course] @hasMany(indexName: "byInstructor", fields: ["id"])
+  assignments: [Assignment] @hasMany(indexName: "byPostedBy", fields: ["id"])
+  grades: [Grade] @hasMany(indexName: "byStudent", fields: ["id"])
+  attendances: [Attendance] @hasMany(indexName: "byStudent", fields: ["id"])
+  schedules: [Schedule] @hasMany(indexName: "byStudent", fields: ["id"])
+  announcements: [Announcement] @hasMany(indexName: "byCreatedBy", fields: ["id"])
+  resourceBookings: [ResourceBooking] @hasMany(indexName: "byRequestedBy", fields: ["id"])
+  payments: [Payment] @hasMany(indexName: "byStudent", fields: ["id"])
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Course @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: groups, groups: ["STUDENT"], operations: [read] }
+]) {
+  id: ID!
+  title: String!
+  code: String!
+  description: String
+  startDate: AWSDate
+  endDate: AWSDate
+  instructor: UserProfile @belongsTo(fields: ["instructorId"])
+  instructorId: ID!
+  assignments: [Assignment] @hasMany(indexName: "byCourse", fields: ["id"])
+  attendances: [Attendance] @hasMany(indexName: "byCourse", fields: ["id"])
+  schedules: [Schedule] @hasMany(indexName: "byCourse", fields: ["id"])
+}
+
+type Assignment @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: groups, groups: ["STUDENT"], operations: [read] }
+]) {
+  id: ID!
+  course: Course @belongsTo(fields: ["courseId"])
+  courseId: ID!
+  title: String!
+  instructions: String
+  dueDate: AWSDateTime
+  postedBy: UserProfile @belongsTo(fields: ["postedById"])
+  postedById: ID!
+  attachmentUrl: AWSURL
+  grades: [Grade] @hasMany(indexName: "byAssignment", fields: ["id"])
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Grade @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: owner, ownerField: "studentOwner", identityClaim: "sub", operations: [read] }
+]) {
+  id: ID!
+  student: UserProfile @belongsTo(fields: ["studentId"])
+  studentId: ID!
+  studentOwner: String
+  assignment: Assignment @belongsTo(fields: ["assignmentId"])
+  assignmentId: ID!
+  score: Float!
+  feedback: String
+  gradedBy: UserProfile @belongsTo(fields: ["gradedById"])
+  gradedById: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Attendance @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: owner, ownerField: "studentOwner", identityClaim: "sub", operations: [read] }
+]) {
+  id: ID!
+  course: Course @belongsTo(fields: ["courseId"])
+  courseId: ID!
+  student: UserProfile @belongsTo(fields: ["studentId"])
+  studentId: ID!
+  studentOwner: String
+  date: AWSDate!
+  status: AttendanceStatus!
+  markedBy: UserProfile @belongsTo(fields: ["markedById"])
+  markedById: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Schedule @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: owner, ownerField: "studentOwner", identityClaim: "sub", operations: [read] }
+]) {
+  id: ID!
+  student: UserProfile @belongsTo(fields: ["studentId"])
+  studentId: ID!
+  studentOwner: String
+  dayOfWeek: String!
+  timeRange: String!
+  course: Course @belongsTo(fields: ["courseId"])
+  courseId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Announcement @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] },
+  { allow: groups, groups: ["STUDENT"], operations: [read] }
+]) {
+  id: ID!
+  audience: AnnouncementAudience!
+  title: String!
+  body: String!
+  createdBy: UserProfile @belongsTo(fields: ["createdById"])
+  createdById: ID!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ResourceBooking @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: owner, ownerField: "requestedByOwner", identityClaim: "sub", operations: [create, read] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [create, read, update] }
+]) {
+  id: ID!
+  resourceName: String!
+  requestedBy: UserProfile @belongsTo(fields: ["requestedById"])
+  requestedById: ID!
+  requestedByOwner: String
+  startTime: AWSDateTime!
+  endTime: AWSDateTime!
+  status: ResourceBookingStatus!
+  approvedBy: UserProfile @belongsTo(fields: ["approvedById"])
+  approvedById: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Payment @model @auth(rules: [
+  { allow: groups, groups: ["ADMIN"], operations: [create, read, update, delete] },
+  { allow: groups, groups: ["INSTRUCTOR"], operations: [read] },
+  { allow: owner, ownerField: "studentOwner", identityClaim: "sub", operations: [read] }
+]) {
+  id: ID!
+  student: UserProfile @belongsTo(fields: ["studentId"])
+  studentId: ID!
+  studentOwner: String
+  amount: Float!
+  status: PaymentStatus!
+  description: String
+  timestamp: AWSDateTime!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}

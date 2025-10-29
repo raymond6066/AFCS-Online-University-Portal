@@ -1,85 +1,120 @@
-# NextAdmin - Next.js Admin Dashboard Template and Components
+# AFCS Online University Portal
 
-**NextAdmin** is a Free, open-source Next.js admin dashboard toolkit featuring 200+ UI components and templates that come with pre-built elements, components, pages, high-quality design, integrations, and much more to help you create powerful admin dashboards with ease.
+A full-stack education resource management platform built with Next.js 15 (React 19), TypeScript, Tailwind CSS, and AWS Amplify Gen 2. The application delivers role-based dashboards for students, instructors, and administrators with secure Cognito Hosted UI authentication, Amplify Data models, and S3-backed storage for sensitive documents.
 
+## Features
 
-[![nextjs admin template](https://cdn.pimjo.com/nextadmin-2.png)](https://nextadmin.co/)
+- 🔐 **AWS Cognito Hosted UI** sign-in/sign-up with profile completion workflow.
+- 👥 **UserProfile** model persisted in Amplify Data with role-aware access rules.
+- 🎓 **Student dashboard** for courses, assignments, grades, attendance summaries, schedules, announcements, messages, and profile management.
+- 🧑‍🏫 **Instructor dashboard** for course management, assignment publishing with file uploads, attendance, gradebook, announcements, and communication planning.
+- 🛡️ **Admin dashboard** for user management, payments, resource booking approvals, analytics, announcements, and secure document review.
+- ☁️ **Amplify Storage v2** integrations for passport photo and medical record uploads with S3 access controls.
+- 🌙 **Dark mode** powered by `next-themes` and Tailwind’s `dark` variant.
+- 📊 **Analytics** page with Recharts visualizing payments versus attendance over time.
 
+## Getting Started
 
-**NextAdmin** provides you with a diverse set of dashboard UI components, elements, examples and pages necessary for creating top-notch admin panels or dashboards with **powerful** features and integrations. Whether you are working on a complex web application or a basic website, **NextAdmin** has got you covered.
+### Prerequisites
 
-### [✨ Visit Website](https://nextadmin.co/)
-### [🚀 Live Demo](https://demo.nextadmin.co/)
-### [📖 Docs](https://docs.nextadmin.co/)
+- Node.js 18+
+- npm 10+ (or yarn/pnpm)
+- AWS account with Amplify Gen 2 access enabled
 
-By leveraging the latest features of **Next.js 14** and key functionalities like **server-side rendering (SSR)**, **static site generation (SSG)**, and seamless **API route integration**, **NextAdmin** ensures optimal performance. With the added benefits of **React 18 advancements** and **TypeScript** reliability, **NextAdmin** is the ultimate choice to kickstart your **Next.js** project efficiently.
+### Install dependencies
 
-## Installation
-
-1. Download/fork/clone the repo and Once you're in the correct directory, it's time to install all the necessary dependencies. You can do this by typing the following command:
-
-```
+```bash
 npm install
 ```
-If you're using **Yarn** as your package manager, the command will be:
 
-```
-yarn install
-```
+> ℹ️ If your environment blocks scoped npm packages you may see a `403` error. Ensure outbound access to `@aws-amplify/*` packages or install from a network that can reach the public npm registry.
 
-2. Okay, you're almost there. Now all you need to do is start the development server. If you're using **npm**, the command is:
+### Run the dev server
 
-```
+```bash
 npm run dev
 ```
-And if you're using **Yarn**, it's:
+
+The app is available at [http://localhost:3000](http://localhost:3000).
+
+## Amplify Backend Structure
 
 ```
-yarn dev
+amplify/
+├── backend.ts           # Registers auth, data, and storage resources
+├── schema.graphql       # GraphQL models with @auth rules
+├── auth/
+│   ├── resource.ts      # Cognito Hosted UI configuration + custom role attribute
+│   └── triggers/
+│       └── post-confirmation.ts
+├── data/
+│   └── resource.ts      # Amplify Data resource definition
+└── storage/
+    └── resource.ts      # S3 buckets for passport photos, medical records, course files
 ```
 
-And voila! You're now ready to start developing. **Happy coding**!
+## Deployment Guide (Amplify Gen 2 + Amplify Hosting)
 
-## Highlighted Features
-**200+ Next.js Dashboard Ul Components and Templates** - includes a variety of prebuilt **Ul elements, components, pages, and examples** crafted with a high-quality design.
-Additionally, features seamless **essential integrations and extensive functionalities**.
+1. **Initialize Amplify project**
+   ```bash
+   npm create amplify@latest
+   # or, from this repo root
+   npx amplify sandbox --config-file amplify/backend.ts
+   ```
 
-- A library of over **200** professional dashboard UI components and elements.
-- Five distinctive dashboard variations, catering to diverse use-cases.
-- A comprehensive set of essential dashboard and admin pages.
-- More than **45** **Next.js** files, ready for use.
-- Styling facilitated by **Tailwind CSS** files.
-- A design that resonates premium quality and high aesthetics.
-- A handy UI kit with assets.
-- Over ten web apps complete with examples.
-- Support for both **dark mode** and **light mode**.
-- Essential integrations including - Authentication (**NextAuth**), Database (**Postgres** with **Prisma**), and Search (**Algolia**).
-- Detailed and user-friendly documentation.
-- Customizable plugins and add-ons.
-- **TypeScript** compatibility.
-- Plus, much more!
+2. **Provision backend resources**
+   ```bash
+   npx amplify sandbox
+   ```
+   - Accept the proposed stack.
+   - Amplify will create the Cognito user pool, AppSync API, and S3 bucket using `amplify/backend.ts` and `amplify/schema.graphql`.
 
-All these features and more make **NextAdmin** a robust, well-rounded solution for all your dashboard development needs.
+3. **Configure Hosted UI**
+   - In the Amplify console (or Cognito console) set the domain prefix, callback URLs, and sign-out URLs to match your deployment and local environments.
+   - Update `amplify/auth/resource.ts` and `amplify_outputs.json` (or the generated `amplify_outputs.json`) with the correct domain and redirect URIs.
 
-## Update Logs
+4. **Pull generated outputs**
+   ```bash
+   npx amplify pull
+   ```
+   - This writes an environment-specific `amplify_outputs.json`. Commit the environment-safe defaults and use `.gitignore`/environment variables for secrets if required.
 
-### Version 1.2.1 - [Mar 20, 2025]
-- Fix Peer dependency issues and NextConfig warning.
-- Updated apexcharts and react-apexhcarts to the latest version.
+5. **Connect the frontend**
+   - Ensure `src/app/providers.tsx` imports the generated `amplify_outputs.json`.
+   - Update the OAuth redirect URIs to include the Amplify Hosting domain once deployed.
 
-### Version 1.2.0 - Major Upgrade and UI Improvements - [Jan 27, 2025]
+6. **Run locally**
+   ```bash
+   npm run dev
+   ```
+   - Use the `/login` route to redirect to the Cognito Hosted UI.
+   - Complete the `/signup` onboarding form on first sign-in.
 
-- Upgraded to Next.js v15 and updated dependencies
-- API integration with loading skeleton for tables and charts.
-- Improved code structure for better readability.
-- Rebuilt components like dropdown, sidebar, and all ui-elements using accessibility practices.
-- Using search-params to store dropdown selection and refetch data.
-- Semantic markups, better separation of concerns and more.
+7. **Deploy to Amplify Hosting**
+   - From the Amplify console choose **Host web app**.
+   - Connect the repository/branch containing this project.
+   - Set build commands:
+     ```bash
+     npm install
+     npm run build
+     ```
+   - Amplify Hosting will inject the environment-specific `amplify_outputs.json` at build time. Ensure the file is committed or provided via environment variables.
 
-### Version 1.1.0
-- Updated Dependencies
-- Removed Unused Integrations
-- Optimized App
+8. **Post-deployment**
+   - Update the Cognito Hosted UI redirect URLs to include the production domain.
+   - Seed initial admin accounts by signing in and choosing the `ADMIN` role when no profiles exist.
 
-### Version 1.0
-- Initial Release - [May 13, 2024]
+## Scripts
+
+- `npm run dev` – start the Next.js dev server
+- `npm run build` – production build
+- `npm run start` – start production server
+- `npm run lint` – run Next.js lint rules
+
+## Environment Variables
+
+The app expects the generated `amplify_outputs.json` to be present at the repository root. Amplify generates and maintains this file when you run `amplify pull` or deploy from Amplify Hosting. No manual `.env` variables are required beyond the outputs.
+
+## License
+
+MIT
